@@ -30,9 +30,12 @@ void disk_open(char *path, struct DiskManager *dm) {
     }
 
     dm->meta = malloc(PAGE_SIZE);
-    dm->free = malloc(PAGE_SIZE);
-
     _disk_read(dm, DISK_META_PAGE_ID, (char *)dm->meta);
+    if (dm->meta->next == 0) {
+        dm->meta->next = FREE_LIST_PAGE_ID;
+    }
+
+    dm->free = malloc(PAGE_SIZE);
     _disk_read(dm, FREE_LIST_PAGE_ID, (char *)dm->free);
 
     return;
@@ -60,7 +63,7 @@ pageid_t disk_alloc(struct DiskManager *dm) {
         return dm->free->pages[--dm->free->len];
     }
 
-    return ++dm->meta->tail;
+    return ++dm->meta->next;
 }
 
 static void _disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
@@ -112,7 +115,7 @@ void disk_write(const struct DiskManager *dm, pageid_t pid, const char *data) {
     return;
 }
 
-void disk_free_page(struct DiskManager *dm, pageid_t pid) {
+void disk_free(struct DiskManager *dm, pageid_t pid) {
     dm->free->pages[dm->free->len++] = pid;
 
     // TODO: check if a new page needs to be allocated to hold the freed pid
