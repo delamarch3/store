@@ -1,7 +1,12 @@
-#include "cache.h"
-#include "vec.h"
 #include <assert.h>
 #include <string.h>
+
+#include "cache.h"
+#include "vec.h"
+
+VEC_IMPL(slotid_t)
+VEC_IMPL(LRUEntry)
+VEC_IMPL(PageSlot)
 
 static bool _find_cache_page(const struct PageCache *, pageid_t, slotid_t *);
 static bool _find_cache_slot(const struct PageCache *, slotid_t, pageid_t *);

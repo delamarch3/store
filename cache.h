@@ -8,7 +8,7 @@
 #define CACHE_SIZE PAGE_SIZE *CACHE_SLOTS
 
 typedef size_t slotid_t;
-VEC(slotid_t)
+VEC_DEC(slotid_t)
 
 #define LRUK 2
 typedef struct LRUKHistory LRUKHistory;
@@ -23,7 +23,7 @@ struct LRUEntry {
     int pins; // Avoid evicting pages that are pinned
     LRUKHistory history;
 };
-VEC(LRUEntry)
+VEC_DEC(LRUEntry)
 
 typedef struct LRU LRU;
 struct LRU {
@@ -37,7 +37,7 @@ struct PageSlot {
     pageid_t pid;
     slotid_t sid;
 };
-VEC(PageSlot)
+VEC_DEC(PageSlot)
 
 #define PTABLE_SIZE 8
 struct PageCache {

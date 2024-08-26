@@ -5,13 +5,18 @@
 
 #define DEFAULT_VEC_CAP 10
 
-#define VEC(t)                                                                 \
+#define VEC_DEC(t)                                                             \
     typedef struct {                                                           \
         size_t len;                                                            \
         size_t cap;                                                            \
         t *data;                                                               \
     } vec_##t;                                                                 \
                                                                                \
+    void vec_init_##t(vec_##t *vec);                                           \
+    void vec_push_##t(vec_##t *vec, t x);                                      \
+    bool vec_pop_##t(vec_##t *vec, t *x);
+
+#define VEC_IMPL(t)                                                            \
     void vec_init_##t(vec_##t *vec) {                                          \
         vec->cap = DEFAULT_VEC_CAP;                                            \
         vec->len = 0;                                                          \
@@ -35,4 +40,4 @@
         return true;                                                           \
     }
 
-VEC(int)
+VEC_DEC(int)
