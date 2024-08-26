@@ -57,12 +57,12 @@ struct Pin {
 } Pin;
 
 void pagec_init(char *, struct PageCache *);
-// Allocate a new page and attempt to find a slot in the cache. If there is
-// no free or evictable page, pid will remain unset
-void pagec_new_page(struct PageCache *pc, struct Pin *pin);
-// Fetch an allocated page and attempt to find a slot in the cache. If there
-// is no free or evictable page, sid will remain unset
-void pagec_fetch_page(struct PageCache *pc, struct Pin *pin);
+// Allocate a new page and attempt to find a slot in the cache. Returns false if
+// there is no free or evictable page
+bool pagec_new_page(struct PageCache *pc, struct Pin *pin);
+// Fetch an allocated page and attempt to find a slot in the cache. Returns
+// false if there is no free or evictable page
+bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin);
 
 void lru_register_entry(LRU *, slotid_t);
 void lru_access(LRU *, slotid_t);

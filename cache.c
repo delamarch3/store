@@ -8,9 +8,8 @@ static bool _find_cache_slot(const struct PageCache *, slotid_t, pageid_t *);
 // Get safe offset within the cache
 static char *_get_cache_offset(const struct PageCache *, const struct Pin *);
 // Attempt to find a free/evictable slot in the page cache to hold the page
-// specified in the pin. If there is no free or evictable page, sid will
-// remain unset
-static void _try_get_page(struct PageCache *, struct Pin *);
+// specified in the pin. Returns false if there is no free or evictable page
+static bool _try_get_page(struct PageCache *, struct Pin *);
 
 static bool _find_cache_page(const struct PageCache *pc, pageid_t pid,
                              slotid_t *sid) {
@@ -43,12 +42,12 @@ static char *_get_cache_offset(const struct PageCache *pc,
     return pc->pages + offset;
 }
 
-static void _try_get_page(struct PageCache *pc, struct Pin *pin) {
+static bool _try_get_page(struct PageCache *pc, struct Pin *pin) {
     // Try to find a free page
     slotid_t sid;
     if (!vec_pop_slotid_t(&pc->free, &sid) && !lru_evict(pc->lru, &sid)) {
         // There is no free or evicatable page
-        return;
+        return false;
     }
 
     // Register entry into LRU
@@ -69,7 +68,7 @@ static void _try_get_page(struct PageCache *pc, struct Pin *pin) {
     // Insert pid -> sid into page table
     vec_push_PageSlot(&pc->ptable, (PageSlot){.pid = pin->pid, .sid = sid});
 
-    return;
+    return true;
 }
 
 void pagec_init(char *path, struct PageCache *pc) {
@@ -86,30 +85,27 @@ void pagec_init(char *path, struct PageCache *pc) {
     return;
 }
 
-void pagec_new_page(struct PageCache *pc, struct Pin *pin) {
+bool pagec_new_page(struct PageCache *pc, struct Pin *pin) {
     pin->pid = disk_alloc(pc->dm);
 
-    _try_get_page(pc, pin);
-    if (pin->sid == 0) {
+    if (!_try_get_page(pc, pin)) {
         disk_free(pc->dm, pin->pid);
-        *pin = (struct Pin){0};
+        pin->pid = 0;
+        return false;
     }
 
-    return;
+    return true;
 }
 
-void pagec_fetch_page(struct PageCache *pc, struct Pin *pin) {
-    if (!_find_cache_page(pc, pin->pid, &pin->sid)) {
-        _try_get_page(pc, pin);
-        if (pin->sid == 0) {
-            return;
-        }
+bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin) {
+    if (!_find_cache_page(pc, pin->pid, &pin->sid) && !_try_get_page(pc, pin)) {
+        return false;
     }
 
     pin->lru = pc->lru;
     pin->page = _get_cache_offset(pc, pin);
 
-    return;
+    return true;
 }
 
 void lru_register_entry(LRU *lru, slotid_t sid) {
