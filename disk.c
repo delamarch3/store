@@ -22,20 +22,49 @@ static bool _page_in_free_list(const struct FreeList *free_list, pageid_t pid) {
     return false;
 }
 
+static void _disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
+    ssize_t nbyte = pread(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
+    if (nbyte == -1) {
+        printf("could not seek read page: %s\n", strerror(errno));
+        exit(1);
+    } else if (nbyte != PAGE_SIZE && nbyte != 0) {
+        printf("did not read full page, read: %zd\n", nbyte);
+        exit(1);
+    }
+
+    return;
+}
+
+static void _disk_write(const struct DiskManager *dm, pageid_t pid,
+                        const char *data) {
+    ssize_t nbyte = pwrite(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
+    if (nbyte == -1) {
+        printf("could not write page: %s\n", strerror(errno));
+        exit(1);
+    } else if (nbyte != PAGE_SIZE) {
+        printf("did not write full page, written: %zd\n", nbyte);
+        exit(1);
+    }
+
+    return;
+}
+
 void disk_open(char *path, struct DiskManager *dm) {
-    int fd = open(path, O_RDWR | O_CREAT);
-    if (fd == -1) {
+    dm->fd = open(path, O_RDWR | O_CREAT);
+    if (dm->fd == -1) {
         printf("could not open %s: %s", path, strerror(errno));
         exit(1);
     }
 
     dm->meta = malloc(PAGE_SIZE);
+    memset(dm->meta, 0, PAGE_SIZE);
     _disk_read(dm, DISK_META_PAGE_ID, (char *)dm->meta);
     if (dm->meta->next == 0) {
         dm->meta->next = FREE_LIST_PAGE_ID;
     }
 
     dm->free = malloc(PAGE_SIZE);
+    memset(dm->free, 0, PAGE_SIZE);
     _disk_read(dm, FREE_LIST_PAGE_ID, (char *)dm->free);
 
     return;
@@ -60,23 +89,11 @@ void disk_close(struct DiskManager *dm) {
 
 pageid_t disk_alloc(struct DiskManager *dm) {
     if (dm->free->len > 0) {
+        printf("%d\n", dm->free->len);
         return dm->free->pages[--dm->free->len];
     }
 
     return ++dm->meta->next;
-}
-
-static void _disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
-    ssize_t nbyte = pread(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
-    if (nbyte == -1) {
-        printf("could not seek read page: %s\n", strerror(errno));
-        exit(1);
-    } else if (nbyte != PAGE_SIZE) {
-        printf("did not read full page\n");
-        exit(1);
-    }
-
-    return;
 }
 
 void disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
@@ -86,20 +103,6 @@ void disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
     }
 
     _disk_read(dm, pid, data);
-
-    return;
-}
-
-static void _disk_write(const struct DiskManager *dm, pageid_t pid,
-                        const char *data) {
-    ssize_t nbyte = pwrite(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
-    if (nbyte == -1) {
-        printf("could not write page: %s\n", strerror(errno));
-        exit(1);
-    } else if (nbyte != PAGE_SIZE) {
-        printf("did not write full page\n");
-        exit(1);
-    }
 
     return;
 }

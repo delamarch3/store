@@ -41,10 +41,10 @@ VEC_DEC(PageSlot)
 
 #define PTABLE_SIZE 8
 struct PageCache {
-    struct DiskManager *dm;
-    slotid_t dirty[CACHE_SLOTS];
+    struct DiskManager dm;
+    bool dirty[CACHE_SLOTS];
     vec_PageSlot ptable;
-    LRU *lru;
+    LRU lru;
     vec_slotid_t free;
     char *pages;
 };
@@ -64,6 +64,7 @@ bool pagec_new_page(struct PageCache *pc, struct Pin *pin);
 // false if there is no free or evictable page
 bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin);
 
+void lru_init(LRU *);
 void lru_register_entry(LRU *, slotid_t);
 void lru_access(LRU *, slotid_t);
 bool lru_evict(const LRU *, slotid_t *);
