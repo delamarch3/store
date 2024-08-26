@@ -59,12 +59,16 @@ struct Pin {
 void pagec_init(char *, struct PageCache *);
 // Allocate a new page and attempt to find a slot in the cache. Returns false if
 // there is no free or evictable page
-bool pagec_new_page(struct PageCache *pc, struct Pin *pin);
+bool pagec_new_page(struct PageCache *, struct Pin *);
 // Fetch an allocated page and attempt to find a slot in the cache. Returns
 // false if there is no free or evictable page
-bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin);
+bool pagec_fetch_page(struct PageCache *, struct Pin *);
+void pagec_flush_page(struct PageCache *, struct Pin *);
+void pagec_free(struct PageCache *);
 
 void lru_init(LRU *);
 void lru_register_entry(LRU *, slotid_t);
 void lru_access(LRU *, slotid_t);
 bool lru_evict(const LRU *, slotid_t *);
+void lru_pin(LRU *, slotid_t);
+void lru_unpin(LRU *, slotid_t);

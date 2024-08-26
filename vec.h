@@ -31,6 +31,7 @@
                                                                                \
         vec->data[vec->len++] = x;                                             \
     }                                                                          \
+                                                                               \
     bool vec_pop_##t(vec_##t *vec, t *x) {                                     \
         if (vec->len == 0) {                                                   \
             return false;                                                      \

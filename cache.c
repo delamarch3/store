@@ -10,9 +10,10 @@ VEC_IMPL(LRUEntry)
 VEC_IMPL(PageSlot)
 
 static bool _find_cache_page(const struct PageCache *, pageid_t, slotid_t *);
+static void _insert_cache_page(struct PageCache *, pageid_t, slotid_t);
 static bool _find_cache_slot(const struct PageCache *, slotid_t, pageid_t *);
-// Get safe offset within the cache
-static char *_get_cache_offset(const struct PageCache *, const struct Pin *);
+// Get safe ptr within the cache
+static char *_get_slot_ptr(const struct PageCache *, const struct Pin *);
 // Attempt to find a free/evictable slot in the page cache to hold the page
 // specified in the pin. Returns false if there is no free or evictable page
 static bool _try_get_page(struct PageCache *, struct Pin *);
@@ -22,11 +23,24 @@ static bool _find_cache_page(const struct PageCache *pc, pageid_t pid,
     for (size_t i = 0; i < pc->ptable.len; i++) {
         if (pc->ptable.data[i].pid == pid) {
             *sid = pc->ptable.data[i].sid;
+
             return true;
         }
     }
 
     return false;
+}
+
+static void _insert_cache_page(struct PageCache *pc, pageid_t pid,
+                               slotid_t sid) {
+    for (size_t i = 0; i < pc->ptable.len; i++) {
+        if (pc->ptable.data[i].pid == pid) {
+            pc->ptable.data[i].sid = sid;
+            return;
+        }
+    }
+
+    vec_push_PageSlot(&pc->ptable, (PageSlot){.pid = pid, .sid = sid});
 }
 
 static bool _find_cache_slot(const struct PageCache *pc, slotid_t sid,
@@ -41,8 +55,7 @@ static bool _find_cache_slot(const struct PageCache *pc, slotid_t sid,
     return false;
 }
 
-static char *_get_cache_offset(const struct PageCache *pc,
-                               const struct Pin *pin) {
+static char *_get_slot_ptr(const struct PageCache *pc, const struct Pin *pin) {
     pageid_t offset = pin->sid * PAGE_SIZE;
     assert(offset <= CACHE_SIZE - PAGE_SIZE);
     return pc->pages + offset;
@@ -50,29 +63,29 @@ static char *_get_cache_offset(const struct PageCache *pc,
 
 static bool _try_get_page(struct PageCache *pc, struct Pin *pin) {
     // Try to find a free page
-    slotid_t sid;
-    if (!vec_pop_slotid_t(&pc->free, &sid) && !lru_evict(&pc->lru, &sid)) {
+    if (!vec_pop_slotid_t(&pc->free, &pin->sid) &&
+        !lru_evict(&pc->lru, &pin->sid)) {
         // There is no free or evicatable page
         return false;
     }
 
     // Register entry into LRU
-    lru_register_entry(&pc->lru, sid);
-    lru_access(&pc->lru, sid);
+    lru_register_entry(&pc->lru, pin->sid);
+    lru_access(&pc->lru, pin->sid);
 
     // Write old page if dirty
-    if (pc->dirty[sid]) {
-        pageid_t pid;
-        assert(_find_cache_slot(pc, sid, &pid));
-        disk_write(&pc->dm, pid, _get_cache_offset(pc, pin));
-        pc->dirty[sid] = false;
+    if (pc->dirty[pin->sid]) {
+        pageid_t pid = 0;
+        assert(_find_cache_slot(pc, pin->sid, &pid));
+        disk_write(&pc->dm, pid, _get_slot_ptr(pc, pin));
+        pc->dirty[pin->sid] = false;
     }
 
     // Read new page
-    disk_read(&pc->dm, pin->pid, _get_cache_offset(pc, pin));
+    disk_read(&pc->dm, pin->pid, _get_slot_ptr(pc, pin));
 
     // Insert pid -> sid into page table
-    vec_push_PageSlot(&pc->ptable, (PageSlot){.pid = pin->pid, .sid = sid});
+    _insert_cache_page(pc, pin->pid, pin->sid);
 
     return true;
 }
@@ -103,6 +116,10 @@ bool pagec_new_page(struct PageCache *pc, struct Pin *pin) {
         return false;
     }
 
+    pin->lru = &pc->lru;
+    pin->page = _get_slot_ptr(pc, pin);
+    lru_pin(pin->lru, pin->sid);
+
     return true;
 }
 
@@ -112,9 +129,29 @@ bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin) {
     }
 
     pin->lru = &pc->lru;
-    pin->page = _get_cache_offset(pc, pin);
+    pin->page = _get_slot_ptr(pc, pin);
+    lru_pin(pin->lru, pin->sid);
 
     return true;
+}
+
+void pagec_flush_page(struct PageCache *pc, struct Pin *pin) {
+    char *offset = _get_slot_ptr(pc, pin);
+    disk_write(&pc->dm, pin->pid, offset);
+    pc->dirty[pin->sid] = false;
+}
+
+void pagec_free(struct PageCache *pc) {
+    disk_close(&pc->dm);
+
+    free(pc->lru.entries.data);
+    pc->lru = (LRU){0};
+
+    free(pc->ptable.data);
+    free(pc->free.data);
+    free(pc->pages);
+
+    *pc = (struct PageCache){0};
 }
 
 void lru_init(LRU *lru) {
@@ -135,7 +172,8 @@ void lru_register_entry(LRU *lru, slotid_t sid) {
         }
     }
 
-    vec_push_LRUEntry(&lru->entries, (LRUEntry){.sid = sid, .history = {0}});
+    vec_push_LRUEntry(&lru->entries,
+                      (LRUEntry){.sid = sid, .pins = 0, .history = {0}});
 }
 
 void lru_access(LRU *lru, slotid_t sid) {
@@ -205,4 +243,22 @@ bool lru_evict(const LRU *lru, slotid_t *sid) {
     }
 
     return false;
+}
+
+void lru_pin(LRU *lru, slotid_t sid) {
+    for (size_t i = 0; i < lru->entries.len; i++) {
+        LRUEntry *entry = &lru->entries.data[i];
+        if (entry->sid == sid) {
+            lru->entries.data[i].pins++;
+        }
+    }
+}
+
+void lru_unpin(LRU *lru, slotid_t sid) {
+    for (size_t i = 0; i < lru->entries.len; i++) {
+        LRUEntry *entry = &lru->entries.data[i];
+        if (entry->sid == sid) {
+            lru->entries.data[i].pins--;
+        }
+    }
 }
