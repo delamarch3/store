@@ -8,11 +8,11 @@
 
 #include "disk.h"
 
-static void _disk_read(const struct DiskManager *, pageid_t, char *);
-static void _disk_write(const struct DiskManager *, pageid_t, const char *);
-static bool _page_in_free_list(const struct FreeList *, pageid_t);
+static void _disk_read(const DiskManager *, pageid_t, char *);
+static void _disk_write(const DiskManager *, pageid_t, const char *);
+static bool _page_in_free_list(const FreeList *, pageid_t);
 
-static bool _page_in_free_list(const struct FreeList *free_list, pageid_t pid) {
+static bool _page_in_free_list(const FreeList *free_list, pageid_t pid) {
     for (unsigned int i = 0; i < free_list->len; i++) {
         if (free_list->pages[i] == pid) {
             return true;
@@ -22,7 +22,7 @@ static bool _page_in_free_list(const struct FreeList *free_list, pageid_t pid) {
     return false;
 }
 
-static void _disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
+static void _disk_read(const DiskManager *dm, pageid_t pid, char *data) {
     ssize_t nbyte = pread(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
     if (nbyte == -1) {
         printf("could not seek read page: %s\n", strerror(errno));
@@ -35,8 +35,7 @@ static void _disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
     return;
 }
 
-static void _disk_write(const struct DiskManager *dm, pageid_t pid,
-                        const char *data) {
+static void _disk_write(const DiskManager *dm, pageid_t pid, const char *data) {
     ssize_t nbyte = pwrite(dm->fd, data, PAGE_SIZE, pid * PAGE_SIZE);
     if (nbyte == -1) {
         printf("could not write page: %s\n", strerror(errno));
@@ -49,7 +48,7 @@ static void _disk_write(const struct DiskManager *dm, pageid_t pid,
     return;
 }
 
-void disk_open(char *path, struct DiskManager *dm) {
+void disk_open(char *path, DiskManager *dm) {
     dm->fd = open(path, O_RDWR | O_CREAT);
     if (dm->fd == -1) {
         printf("could not open %s: %s", path, strerror(errno));
@@ -70,7 +69,7 @@ void disk_open(char *path, struct DiskManager *dm) {
     return;
 }
 
-void disk_close(struct DiskManager *dm) {
+void disk_close(DiskManager *dm) {
     _disk_write(dm, DISK_META_PAGE_ID, (char *)dm->meta);
     _disk_write(dm, FREE_LIST_PAGE_ID, (char *)dm->free);
 
@@ -82,12 +81,12 @@ void disk_close(struct DiskManager *dm) {
         exit(1);
     }
 
-    *dm = (struct DiskManager){0};
+    *dm = (DiskManager){0};
 
     return;
 }
 
-pageid_t disk_alloc(struct DiskManager *dm) {
+pageid_t disk_alloc(DiskManager *dm) {
     if (dm->free->len > 0) {
         printf("%d\n", dm->free->len);
         return dm->free->pages[--dm->free->len];
@@ -96,7 +95,7 @@ pageid_t disk_alloc(struct DiskManager *dm) {
     return ++dm->meta->next;
 }
 
-void disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
+void disk_read(const DiskManager *dm, pageid_t pid, char *data) {
     if (_page_in_free_list(dm->free, pid)) {
         printf("attempt to read freed page %d\n", pid);
         exit(1);
@@ -107,7 +106,7 @@ void disk_read(const struct DiskManager *dm, pageid_t pid, char *data) {
     return;
 }
 
-void disk_write(const struct DiskManager *dm, pageid_t pid, const char *data) {
+void disk_write(const DiskManager *dm, pageid_t pid, const char *data) {
     if (_page_in_free_list(dm->free, pid)) {
         printf("attempt to write freed page %d\n", pid);
         exit(1);
@@ -118,7 +117,7 @@ void disk_write(const struct DiskManager *dm, pageid_t pid, const char *data) {
     return;
 }
 
-void disk_free(struct DiskManager *dm, pageid_t pid) {
+void disk_free(DiskManager *dm, pageid_t pid) {
     dm->free->pages[dm->free->len++] = pid;
 
     // TODO: check if a new page needs to be allocated to hold the freed pid

@@ -39,36 +39,37 @@ struct PageSlot {
 };
 VEC_DEC(PageSlot)
 
-#define PTABLE_SIZE 8
+typedef struct PageCache PageCache;
 struct PageCache {
-    struct DiskManager dm;
+    DiskManager dm;
     bool dirty[CACHE_SLOTS];
     vec_PageSlot ptable;
     LRU lru;
-    vec_slotid_t free;
+    vec_slotid_t free; // TODO: can be fixed size
     char *pages;
 };
 
+typedef struct Pin Pin;
 struct Pin {
     pageid_t pid;
     slotid_t sid;
     LRU *lru;
     char *page;
-} Pin;
+};
 
-void pagec_init(char *, struct PageCache *);
+void pagec_init(char *, PageCache *);
 // Allocate a new page and attempt to find a slot in the cache. Returns false if
 // there is no free or evictable page
-bool pagec_new_page(struct PageCache *, struct Pin *);
+bool pagec_new_page(PageCache *, Pin *);
 // Fetch an allocated page and attempt to find a slot in the cache. Returns
 // false if there is no free or evictable page
-bool pagec_fetch_page(struct PageCache *, struct Pin *);
-void pagec_flush_page(struct PageCache *, struct Pin *);
-void pagec_free(struct PageCache *);
+bool pagec_fetch_page(PageCache *, Pin *);
+void pagec_flush_page(PageCache *, Pin *);
+void pagec_free(PageCache *);
 
 void lru_init(LRU *);
 void lru_register_entry(LRU *, slotid_t);
 void lru_access(LRU *, slotid_t);
-bool lru_evict(const LRU *, slotid_t *);
+bool lru_evict(LRU *, slotid_t *);
 void lru_pin(LRU *, slotid_t);
 void lru_unpin(LRU *, slotid_t);

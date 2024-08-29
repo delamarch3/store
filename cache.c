@@ -9,17 +9,16 @@ VEC_IMPL(slotid_t)
 VEC_IMPL(LRUEntry)
 VEC_IMPL(PageSlot)
 
-static bool _find_cache_page(const struct PageCache *, pageid_t, slotid_t *);
-static void _insert_cache_page(struct PageCache *, pageid_t, slotid_t);
-static bool _find_cache_slot(const struct PageCache *, slotid_t, pageid_t *);
+static bool _find_cache_page(const PageCache *, pageid_t, slotid_t *);
+static void _insert_cache_page(PageCache *, pageid_t, slotid_t);
+static bool _find_cache_slot(const PageCache *, slotid_t, pageid_t *);
 // Get safe ptr within the cache
-static char *_get_slot_ptr(const struct PageCache *, const struct Pin *);
+static char *_get_slot_ptr(const PageCache *, const Pin *);
 // Attempt to find a free/evictable slot in the page cache to hold the page
 // specified in the pin. Returns false if there is no free or evictable page
-static bool _try_get_page(struct PageCache *, struct Pin *);
+static bool _try_get_page(PageCache *, Pin *);
 
-static bool _find_cache_page(const struct PageCache *pc, pageid_t pid,
-                             slotid_t *sid) {
+static bool _find_cache_page(const PageCache *pc, pageid_t pid, slotid_t *sid) {
     for (size_t i = 0; i < pc->ptable.len; i++) {
         if (pc->ptable.data[i].pid == pid) {
             *sid = pc->ptable.data[i].sid;
@@ -31,8 +30,7 @@ static bool _find_cache_page(const struct PageCache *pc, pageid_t pid,
     return false;
 }
 
-static void _insert_cache_page(struct PageCache *pc, pageid_t pid,
-                               slotid_t sid) {
+static void _insert_cache_page(PageCache *pc, pageid_t pid, slotid_t sid) {
     for (size_t i = 0; i < pc->ptable.len; i++) {
         if (pc->ptable.data[i].pid == pid) {
             pc->ptable.data[i].sid = sid;
@@ -43,8 +41,7 @@ static void _insert_cache_page(struct PageCache *pc, pageid_t pid,
     vec_push_PageSlot(&pc->ptable, (PageSlot){.pid = pid, .sid = sid});
 }
 
-static bool _find_cache_slot(const struct PageCache *pc, slotid_t sid,
-                             pageid_t *pid) {
+static bool _find_cache_slot(const PageCache *pc, slotid_t sid, pageid_t *pid) {
     for (size_t i = 0; i < pc->ptable.len; i++) {
         if (pc->ptable.data[i].sid == sid) {
             *pid = pc->ptable.data[i].pid;
@@ -55,13 +52,13 @@ static bool _find_cache_slot(const struct PageCache *pc, slotid_t sid,
     return false;
 }
 
-static char *_get_slot_ptr(const struct PageCache *pc, const struct Pin *pin) {
+static char *_get_slot_ptr(const PageCache *pc, const Pin *pin) {
     pageid_t offset = pin->sid * PAGE_SIZE;
     assert(offset <= CACHE_SIZE - PAGE_SIZE);
     return pc->pages + offset;
 }
 
-static bool _try_get_page(struct PageCache *pc, struct Pin *pin) {
+static bool _try_get_page(PageCache *pc, Pin *pin) {
     // Try to find a free page
     if (!vec_pop_slotid_t(&pc->free, &pin->sid) &&
         !lru_evict(&pc->lru, &pin->sid)) {
@@ -90,7 +87,7 @@ static bool _try_get_page(struct PageCache *pc, struct Pin *pin) {
     return true;
 }
 
-void pagec_init(char *path, struct PageCache *pc) {
+void pagec_init(char *path, PageCache *pc) {
     disk_open(path, &pc->dm);
 
     lru_init(&pc->lru);
@@ -107,7 +104,7 @@ void pagec_init(char *path, struct PageCache *pc) {
     return;
 }
 
-bool pagec_new_page(struct PageCache *pc, struct Pin *pin) {
+bool pagec_new_page(PageCache *pc, Pin *pin) {
     pin->pid = disk_alloc(&pc->dm);
 
     if (!_try_get_page(pc, pin)) {
@@ -123,7 +120,7 @@ bool pagec_new_page(struct PageCache *pc, struct Pin *pin) {
     return true;
 }
 
-bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin) {
+bool pagec_fetch_page(PageCache *pc, Pin *pin) {
     if (!_find_cache_page(pc, pin->pid, &pin->sid) && !_try_get_page(pc, pin)) {
         return false;
     }
@@ -135,13 +132,13 @@ bool pagec_fetch_page(struct PageCache *pc, struct Pin *pin) {
     return true;
 }
 
-void pagec_flush_page(struct PageCache *pc, struct Pin *pin) {
+void pagec_flush_page(PageCache *pc, Pin *pin) {
     char *offset = _get_slot_ptr(pc, pin);
     disk_write(&pc->dm, pin->pid, offset);
     pc->dirty[pin->sid] = false;
 }
 
-void pagec_free(struct PageCache *pc) {
+void pagec_free(PageCache *pc) {
     disk_close(&pc->dm);
 
     free(pc->lru.entries.data);
@@ -151,7 +148,7 @@ void pagec_free(struct PageCache *pc) {
     free(pc->free.data);
     free(pc->pages);
 
-    *pc = (struct PageCache){0};
+    *pc = (PageCache){0};
 }
 
 void lru_init(LRU *lru) {
@@ -200,7 +197,7 @@ void lru_access(LRU *lru, slotid_t sid) {
     assert(found);
 }
 
-bool lru_evict(const LRU *lru, slotid_t *sid) {
+bool lru_evict(LRU *lru, slotid_t *sid) {
     int max = 0;
     slotid_t max_sid = 0;
 
