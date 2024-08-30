@@ -9,15 +9,6 @@ VEC_IMPL(slotid_t)
 VEC_IMPL(LRUEntry)
 VEC_IMPL(PageSlot)
 
-static bool _find_cache_page(const PageCache *, pageid_t, slotid_t *);
-static void _insert_cache_page(PageCache *, pageid_t, slotid_t);
-static bool _find_cache_slot(const PageCache *, slotid_t, pageid_t *);
-// Get safe ptr within the cache
-static char *_get_slot_ptr(const PageCache *, const Pin *);
-// Attempt to find a free/evictable slot in the page cache to hold the page
-// specified in the pin. Returns false if there is no free or evictable page
-static bool _try_get_page(PageCache *, Pin *);
-
 static bool _find_cache_page(const PageCache *pc, pageid_t pid, slotid_t *sid) {
     for (size_t i = 0; i < pc->ptable.len; i++) {
         if (pc->ptable.data[i].pid == pid) {
@@ -41,53 +32,43 @@ static void _insert_cache_page(PageCache *pc, pageid_t pid, slotid_t sid) {
     vec_push_PageSlot(&pc->ptable, (PageSlot){.pid = pid, .sid = sid});
 }
 
-static bool _find_cache_slot(const PageCache *pc, slotid_t sid, pageid_t *pid) {
-    for (size_t i = 0; i < pc->ptable.len; i++) {
-        if (pc->ptable.data[i].sid == sid) {
-            *pid = pc->ptable.data[i].pid;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static char *_get_slot_ptr(const PageCache *pc, const Pin *pin) {
-    pageid_t offset = pin->sid * PAGE_SIZE;
-    assert(offset <= CACHE_SIZE - PAGE_SIZE);
-    return pc->pages + offset;
-}
-
-static bool _try_get_page(PageCache *pc, Pin *pin) {
+// Attempt to find a free/evictable slot in the page cache to hold the page
+// specified in the pin. Returns false if there is no free or evictable page
+static bool _try_get_page(PageCache *pc, pageid_t pid, Page **page) {
     // Try to find a free page
-    if (!vec_pop_slotid_t(&pc->free, &pin->sid) &&
-        !lru_evict(&pc->lru, &pin->sid)) {
+    slotid_t sid = 0;
+    if (!vec_pop_slotid_t(&pc->free, &sid) && !lru_evict(&pc->lru, &sid)) {
         // There is no free or evicatable page
         return false;
     }
 
+    Page *cache_page = &pc->pages[sid];
+    assert(cache_page->pins == 0);
+
     // Register entry into LRU
-    lru_register_entry(&pc->lru, pin->sid);
-    lru_access(&pc->lru, pin->sid);
+    lru_register_entry(&pc->lru, sid);
+    lru_access(&pc->lru, sid);
+    cache_page->pins = 1;
 
     // Write old page if dirty
-    if (pc->dirty[pin->sid]) {
-        pageid_t pid = 0;
-        assert(_find_cache_slot(pc, pin->sid, &pid));
-        disk_write(&pc->dm, pid, _get_slot_ptr(pc, pin));
-        pc->dirty[pin->sid] = false;
+    if (cache_page->dirty) {
+        disk_write(&pc->dm, cache_page->pid, cache_page->data);
+        cache_page->dirty = false;
     }
 
     // Read new page
-    disk_read(&pc->dm, pin->pid, _get_slot_ptr(pc, pin));
+    cache_page->pid = pid;
+    disk_read(&pc->dm, cache_page->pid, cache_page->data);
 
     // Insert pid -> sid into page table
-    _insert_cache_page(pc, pin->pid, pin->sid);
+    _insert_cache_page(pc, cache_page->pid, sid);
+
+    *page = cache_page;
 
     return true;
 }
 
-void pagec_init(char *path, PageCache *pc) {
+void cache_init(char *path, PageCache *pc) {
     disk_open(path, &pc->dm);
 
     lru_init(&pc->lru);
@@ -99,56 +80,65 @@ void pagec_init(char *path, PageCache *pc) {
         vec_push_slotid_t(&pc->free, i);
     }
 
-    pc->pages = (char *)malloc(CACHE_SIZE);
+    pc->pages = calloc(CACHE_SLOTS, sizeof(Page));
 
     return;
 }
 
-bool pagec_new_page(PageCache *pc, Pin *pin) {
-    pin->pid = disk_alloc(&pc->dm);
+bool cache_new_page(PageCache *pc, Page **page) {
+    pageid_t pid = disk_alloc(&pc->dm);
 
-    if (!_try_get_page(pc, pin)) {
-        disk_free(&pc->dm, pin->pid);
-        pin->pid = 0;
+    if (!_try_get_page(pc, pid, page)) {
+        disk_free(&pc->dm, pid);
         return false;
     }
-
-    pin->lru = &pc->lru;
-    pin->page = _get_slot_ptr(pc, pin);
-    lru_pin(pin->lru, pin->sid);
 
     return true;
 }
 
-bool pagec_fetch_page(PageCache *pc, Pin *pin) {
-    if (!_find_cache_page(pc, pin->pid, &pin->sid) && !_try_get_page(pc, pin)) {
-        return false;
+bool cache_fetch_page(PageCache *pc, pageid_t pid, Page **page) {
+    slotid_t sid = 0;
+    if (_find_cache_page(pc, pid, &sid)) {
+        *page = &pc->pages[sid];
+        (*page)->pins++;
+
+        return true;
     }
 
-    pin->lru = &pc->lru;
-    pin->page = _get_slot_ptr(pc, pin);
-    lru_pin(pin->lru, pin->sid);
-
-    return true;
+    return _try_get_page(pc, pid, page);
 }
 
-void pagec_flush_page(PageCache *pc, Pin *pin) {
-    char *offset = _get_slot_ptr(pc, pin);
-    disk_write(&pc->dm, pin->pid, offset);
-    pc->dirty[pin->sid] = false;
+void cache_unpin(PageCache *pc, Page *page) {
+    if (--page->pins != 0) {
+        return;
+    }
+
+    // Page is evictable
+    slotid_t sid = 0;
+    _find_cache_page(pc, page->pid, &sid);
+    lru_set_evictable(&pc->lru, sid, true);
+
+    return;
 }
 
-void pagec_free(PageCache *pc) {
+void cache_flush_page(PageCache *pc, Page *page) {
+    disk_write(&pc->dm, page->pid, page->data);
+    page->dirty = false;
+
+    return;
+}
+
+void cache_close(PageCache *pc) {
     disk_close(&pc->dm);
 
     free(pc->lru.entries.data);
-    pc->lru = (LRU){0};
-
     free(pc->ptable.data);
     free(pc->free.data);
     free(pc->pages);
 
     *pc = (PageCache){0};
+
+    return;
 }
 
 void lru_init(LRU *lru) {
@@ -157,44 +147,50 @@ void lru_init(LRU *lru) {
     return;
 }
 
-void lru_register_entry(LRU *lru, slotid_t sid) {
+LRUEntry *lru_find_entry(const LRU *lru, slotid_t sid) {
     for (size_t i = 0; i < lru->entries.len; i++) {
         LRUEntry *entry = &lru->entries.data[i];
         if (entry->sid == sid) {
-            // Reuse this entry
-            assert(entry->pins == 0);
-            entry->history = (LRUKHistory){0};
-
-            return;
+            return entry;
         }
     }
 
-    vec_push_LRUEntry(&lru->entries,
-                      (LRUEntry){.sid = sid, .pins = 0, .history = {0}});
+    return NULL;
+}
+
+void lru_register_entry(LRU *lru, slotid_t sid) {
+    LRUEntry *entry = lru_find_entry(lru, sid);
+    if (entry != NULL) {
+        assert(entry->evictable);
+        entry->evictable = false;
+        entry->history = (LRUKHistory){0};
+
+        return;
+    }
+
+    vec_push_LRUEntry(
+        &lru->entries,
+        (LRUEntry){.sid = sid, .evictable = false, .history = {0}});
+
+    return;
 }
 
 void lru_access(LRU *lru, slotid_t sid) {
-    bool found = false;
-    for (size_t i = 0; i < lru->entries.len; i++) {
-        LRUEntry *entry = &lru->entries.data[i];
-        if (entry->sid == sid) {
-            found = true;
+    LRUEntry *entry = lru_find_entry(lru, sid);
+    assert(entry != NULL);
 
-            LRUKHistory *history = &entry->history;
-            if (history->len < LRUK + 1) {
-                history->timestamps[history->len++] = lru->timestamp;
-                break;
-            }
-
-            // Shift the array left one and assign the last element
-            memcpy(&history->timestamps[0], &history->timestamps[1], LRUK);
-            history->timestamps[LRUK] = lru->timestamp;
-
-            lru->timestamp++;
-        }
+    LRUKHistory *history = &entry->history;
+    if (history->len < LRUK + 1) {
+        history->timestamps[history->len++] = lru->timestamp;
+        return;
     }
 
-    assert(found);
+    // Shift the array left one and assign the last element
+    memcpy(&history->timestamps[0], &history->timestamps[1], LRUK);
+    history->timestamps[LRUK] = lru->timestamp;
+    lru->timestamp++;
+
+    return;
 }
 
 bool lru_evict(LRU *lru, slotid_t *sid) {
@@ -207,7 +203,7 @@ bool lru_evict(LRU *lru, slotid_t *sid) {
 
     for (size_t i = 0; i < lru->entries.len; i++) {
         LRUEntry entry = lru->entries.data[i];
-        if (entry.pins != 0) {
+        if (!entry.evictable) {
             continue;
         }
 
@@ -242,20 +238,10 @@ bool lru_evict(LRU *lru, slotid_t *sid) {
     return false;
 }
 
-void lru_pin(LRU *lru, slotid_t sid) {
-    for (size_t i = 0; i < lru->entries.len; i++) {
-        LRUEntry *entry = &lru->entries.data[i];
-        if (entry->sid == sid) {
-            lru->entries.data[i].pins++;
-        }
-    }
-}
+void lru_set_evictable(LRU *lru, slotid_t sid, bool evictable) {
+    LRUEntry *entry = lru_find_entry(lru, sid);
+    assert(entry != NULL);
+    entry->evictable = evictable;
 
-void lru_unpin(LRU *lru, slotid_t sid) {
-    for (size_t i = 0; i < lru->entries.len; i++) {
-        LRUEntry *entry = &lru->entries.data[i];
-        if (entry->sid == sid) {
-            lru->entries.data[i].pins--;
-        }
-    }
+    return;
 }

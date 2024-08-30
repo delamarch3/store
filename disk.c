@@ -8,10 +8,6 @@
 
 #include "disk.h"
 
-static void _disk_read(const DiskManager *, pageid_t, char *);
-static void _disk_write(const DiskManager *, pageid_t, const char *);
-static bool _page_in_free_list(const FreeList *, pageid_t);
-
 static bool _page_in_free_list(const FreeList *free_list, pageid_t pid) {
     for (unsigned int i = 0; i < free_list->len; i++) {
         if (free_list->pages[i] == pid) {
@@ -55,15 +51,13 @@ void disk_open(char *path, DiskManager *dm) {
         exit(1);
     }
 
-    dm->meta = malloc(PAGE_SIZE);
-    memset(dm->meta, 0, PAGE_SIZE);
+    dm->meta = calloc(1, PAGE_SIZE);
     _disk_read(dm, DISK_META_PAGE_ID, (char *)dm->meta);
     if (dm->meta->next == 0) {
         dm->meta->next = FREE_LIST_PAGE_ID;
     }
 
-    dm->free = malloc(PAGE_SIZE);
-    memset(dm->free, 0, PAGE_SIZE);
+    dm->free = calloc(1, PAGE_SIZE);
     _disk_read(dm, FREE_LIST_PAGE_ID, (char *)dm->free);
 
     return;

@@ -5,7 +5,6 @@
 #include "vec.h"
 
 #define CACHE_SLOTS 256
-#define CACHE_SIZE PAGE_SIZE *CACHE_SLOTS
 
 typedef size_t slotid_t;
 VEC_DEC(slotid_t)
@@ -20,14 +19,13 @@ struct LRUKHistory {
 typedef struct LRUEntry LRUEntry;
 struct LRUEntry {
     slotid_t sid;
-    int pins; // Avoid evicting pages that are pinned
+    bool evictable;
     LRUKHistory history;
 };
 VEC_DEC(LRUEntry)
 
 typedef struct LRU LRU;
 struct LRU {
-    // TODO: keep a reference count here?
     unsigned int timestamp;
     vec_LRUEntry entries;
 };
@@ -39,37 +37,39 @@ struct PageSlot {
 };
 VEC_DEC(PageSlot)
 
+typedef struct Page Page;
+struct Page {
+    pageid_t pid;
+    // TODO: lock
+    int pins; // reference count
+    bool dirty;
+    int __padding : 24;
+    char data[PAGE_SIZE];
+};
+
 typedef struct PageCache PageCache;
 struct PageCache {
     DiskManager dm;
-    bool dirty[CACHE_SLOTS];
     vec_PageSlot ptable;
     LRU lru;
     vec_slotid_t free; // TODO: can be fixed size
-    char *pages;
+    Page *pages;
 };
 
-typedef struct Pin Pin;
-struct Pin {
-    pageid_t pid;
-    slotid_t sid;
-    LRU *lru;
-    char *page;
-};
-
-void pagec_init(char *, PageCache *);
+void cache_init(char *, PageCache *);
 // Allocate a new page and attempt to find a slot in the cache. Returns false if
 // there is no free or evictable page
-bool pagec_new_page(PageCache *, Pin *);
+bool cache_new_page(PageCache *, Page **);
 // Fetch an allocated page and attempt to find a slot in the cache. Returns
 // false if there is no free or evictable page
-bool pagec_fetch_page(PageCache *, Pin *);
-void pagec_flush_page(PageCache *, Pin *);
-void pagec_free(PageCache *);
+bool cache_fetch_page(PageCache *, pageid_t, Page **);
+void cache_unpin(PageCache *, Page *);
+void cache_flush_page(PageCache *, Page *);
+void cache_close(PageCache *);
 
 void lru_init(LRU *);
+LRUEntry *lru_find_entry(const LRU *, slotid_t);
 void lru_register_entry(LRU *, slotid_t);
 void lru_access(LRU *, slotid_t);
 bool lru_evict(LRU *, slotid_t *);
-void lru_pin(LRU *, slotid_t);
-void lru_unpin(LRU *, slotid_t);
+void lru_set_evictable(LRU *, slotid_t, bool);

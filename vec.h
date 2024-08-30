@@ -20,7 +20,7 @@
     void vec_init_##t(vec_##t *vec) {                                          \
         vec->cap = DEFAULT_VEC_CAP;                                            \
         vec->len = 0;                                                          \
-        vec->data = (t *)malloc(vec->cap * sizeof(t));                         \
+        vec->data = (t *)calloc(vec->cap, sizeof(t));                          \
     }                                                                          \
                                                                                \
     void vec_push_##t(vec_##t *vec, t x) {                                     \

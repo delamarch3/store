@@ -8,94 +8,86 @@
 
 static void test_cache_single_page();
 
-static LRUEntry *lru_find_entry(const LRU *lru, slotid_t sid) {
-    for (size_t i = 0; i < lru->entries.len; i++) {
-        LRUEntry *entry = &lru->entries.data[i];
-        if (entry->sid == sid) {
-            return entry;
-        }
-    }
-
-    return NULL;
-}
-
 void test_cache() { test_cache_single_page(); }
 
 static void test_cache_single_page() {
+    typedef struct TestPage TestPage;
     struct TestPage {
         size_t len;
         int values[];
     };
 
-    struct PageCache pc = {0};
-    pagec_init(TEST_STORE_FILE, &pc);
+    PageCache pc = {0};
+    cache_init(TEST_STORE_FILE, &pc);
 
-    struct Pin pin = {0};
-    assert(pagec_new_page(&pc, &pin));
-    assert(pin.pid == FREE_LIST_PAGE_ID + 1);
-    assert(pin.lru == &pc.lru);
+    Page *page = NULL;
+    assert(cache_new_page(&pc, &page));
+    assert(page->pid == FREE_LIST_PAGE_ID + 1);
 
     // Ensure a fetch of a cached page returns the same slot
-    char *page = pin.page;
-    slotid_t sid = pin.sid;
+    char *data = page->data;
     {
-        struct Pin pin = {0};
-        pin.pid = FREE_LIST_PAGE_ID + 1;
+        Page *page = NULL;
+        pageid_t pid = FREE_LIST_PAGE_ID + 1;
 
-        assert(pagec_fetch_page(&pc, &pin));
-        assert(pin.pid == FREE_LIST_PAGE_ID + 1);
-        assert(pin.sid == sid);
-        assert(pin.page == page);
+        assert(cache_fetch_page(&pc, pid, &page));
+        assert(page->pid == FREE_LIST_PAGE_ID + 1);
+        assert(page->data == data);
 
         // Ensure the the pin count is correct
-        LRUEntry *entry = lru_find_entry(pin.lru, pin.sid);
+        LRUEntry *entry = lru_find_entry(&pc.lru, 255);
         assert(entry != NULL);
-        assert(entry->pins == 2);
+        assert(entry->evictable == false);
 
         // Ensure written data can be read by other pins
-        struct TestPage *tp = (struct TestPage *)pin.page;
+        TestPage *tp = (TestPage *)page->data;
         tp->values[tp->len++] = -1;
         tp->values[tp->len++] = 0;
         tp->values[tp->len++] = 1;
 
-        lru_unpin(pin.lru, pin.sid);
+        cache_unpin(&pc, page);
     }
 
-    // Ensure the pin count is correct
-    LRUEntry *entry = lru_find_entry(pin.lru, pin.sid);
+    // Ensure the lru entry is correct
+    LRUEntry *entry = lru_find_entry(&pc.lru, 255);
     assert(entry != NULL);
-    assert(entry->pins == 1);
+    assert(entry->evictable == false);
 
     // Ensure written data can be read by other pins
-    struct TestPage *tp = (struct TestPage *)pin.page;
+    TestPage *tp = (TestPage *)page->data;
     assert(tp->len == 3);
     assert(tp->values[0] == -1);
     assert(tp->values[1] == 0);
     assert(tp->values[2] == 1);
 
+    // Ensure slot is marked evictable
+    cache_unpin(&pc, page);
+    entry = lru_find_entry(&pc.lru, 255);
+    assert(entry != NULL);
+    assert(entry->evictable == true);
+
     // Ensure a page written to disk is read back the same
-    pagec_flush_page(&pc, &pin);
-    pagec_free(&pc);
-    pagec_init(TEST_STORE_FILE, &pc);
+    cache_flush_page(&pc, page);
+    cache_close(&pc);
+    cache_init(TEST_STORE_FILE, &pc);
 
-    pin = (struct Pin){0};
-    pin.pid = FREE_LIST_PAGE_ID + 1;
-    assert(pagec_fetch_page(&pc, &pin));
-    assert(pin.pid == FREE_LIST_PAGE_ID + 1);
+    page = NULL;
+    pageid_t pid = FREE_LIST_PAGE_ID + 1;
+    assert(cache_fetch_page(&pc, pid, &page));
+    assert(page->pid == FREE_LIST_PAGE_ID + 1);
 
-    tp = (struct TestPage *)pin.page;
+    tp = (TestPage *)page->data;
     assert(tp->len == 3);
     assert(tp->values[0] == -1);
     assert(tp->values[1] == 0);
     assert(tp->values[2] == 1);
 
     // Ensure the next allocated page is correct
-    pin = (struct Pin){0};
-    assert(pagec_new_page(&pc, &pin));
-    assert(pin.pid == FREE_LIST_PAGE_ID + 2);
-    assert(pin.sid == sid - 1);
-    assert(pin.lru == &pc.lru);
+    page = NULL;
+    assert(cache_new_page(&pc, &page));
+    assert(page->pid == FREE_LIST_PAGE_ID + 2);
 
+    // TODO: failed asserts will skip test file removal
     // Remove test store
     remove(TEST_STORE_FILE);
 
