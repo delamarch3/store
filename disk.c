@@ -114,6 +114,7 @@ void disk_write(const DiskManager *dm, pageid_t pid, const char *data) {
 void disk_free(DiskManager *dm, pageid_t pid) {
     dm->free->pages[dm->free->len++] = pid;
 
+    // TODO: clear the page?
     // TODO: check if a new page needs to be allocated to hold the freed pid
 
     return;
