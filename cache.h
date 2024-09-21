@@ -63,6 +63,7 @@ bool cache_new_page(PageCache *, Page **);
 // Fetch an allocated page and attempt to find a slot in the cache. Returns
 // false if there is no free or evictable page
 bool cache_fetch_page(PageCache *, pageid_t, Page **);
+bool cache_fetch_or_set(PageCache *, pageid_t *, Page **);
 void cache_unpin(PageCache *, Page *);
 void cache_flush_page(PageCache *, Page *);
 void cache_close(PageCache *);

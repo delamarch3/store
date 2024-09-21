@@ -29,8 +29,6 @@ static bool test_cache_single_page() {
         int values[];
     };
 
-    char *test = (char *)__func__;
-
     PageCache pc = {0};
     cache_init(test_store_file, &pc);
 

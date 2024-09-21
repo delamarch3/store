@@ -108,15 +108,28 @@ bool cache_fetch_page(PageCache *pc, pageid_t pid, Page **page) {
     return _try_get_page(pc, pid, page);
 }
 
+bool cache_fetch_or_set(PageCache *pc, pageid_t *pid, Page **page) {
+    if (*pid == 0) {
+        if (!cache_new_page(pc, page)) {
+            return false;
+        }
+
+        *pid = (*page)->pid;
+        return true;
+    }
+
+    return cache_fetch_page(pc, *pid, page);
+}
+
 void cache_unpin(PageCache *pc, Page *page) {
     if (--page->pins != 0) {
         return;
     }
 
-    // Page is evictable
+    bool evictable = true;
     slotid_t sid = 0;
     _find_cache_page(pc, page->pid, &sid);
-    lru_set_evictable(&pc->lru, sid, true);
+    lru_set_evictable(&pc->lru, sid, evictable);
 
     return;
 }
