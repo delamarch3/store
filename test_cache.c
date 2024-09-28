@@ -1,20 +1,5 @@
-#include <assert.h>
-#include <stdio.h>
-
 #include "cache.h"
 #include "test.h"
-
-#define STRINGIFY(e) #e
-#define TO_STRING(e) STRINGIFY(e)
-#define TEST_STORE_FILE(ext) (__func__ TO_STRING(ext))
-
-#define TEST(e)                                                                \
-    if (!(e)) {                                                                \
-        printf("FAIL: %s:%d %s %s\n", __ASSERT_FILE_NAME, __LINE__, __func__,  \
-               #e);                                                            \
-        remove(test_store_file);                                               \
-        return false;                                                          \
-    }
 
 static bool test_cache_single_page();
 

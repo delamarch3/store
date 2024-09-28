@@ -8,10 +8,12 @@ set -e
 files=(
     disk.c
     cache.c
+    map.c
 )
 
 test_files=(
     test_cache.c
+    test_map.c
 )
 
 if [ $1 = 'test' ]

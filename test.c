@@ -5,4 +5,5 @@
 int main(void) {
     printf("Running tests...\n");
     test_cache();
+    test_map();
 }

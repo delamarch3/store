@@ -1,7 +1,3 @@
-#include <assert.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "cache.h"
 #include "disk.h"
 
@@ -41,3 +37,4 @@ bool bucket_iter_next(BucketIter *, char **, size_t *, char **, size_t *);
 
 void map_init(Map *, PageCache *);
 bool map_insert(Map *, char *, size_t, char *, size_t);
+bool map_get(Map *, char *, size_t, char **, size_t *);

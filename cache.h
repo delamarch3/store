@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -43,7 +45,8 @@ struct Page {
     // TODO: lock
     int pins; // reference count
     bool dirty;
-    int __padding : 24;
+    int __padding;
+
     char data[PAGE_SIZE];
 };
 
